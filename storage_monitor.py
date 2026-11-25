@@ -22,4 +22,6 @@ def get_storage_info(path: str = "/") -> None:
 
 
 if __name__ == "__main__":
-    get_storage_info("/")
+    get_storage_info("/mnt/c")  # Windows本体 (Cドライブ)
+    print()
+    get_storage_info("/")       # WSL2 (Ubuntu仮想環境)
