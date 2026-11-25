@@ -1,4 +1,6 @@
 import json
+import os
+import platform
 import shutil
 import subprocess
 
@@ -12,19 +14,34 @@ def format_bytes(size_bytes: float) -> str:
     return f"{size_bytes:.2f} PB"
 
 
-def get_storage_info(path: str = "/") -> None:
+def create_progress_bar(percent: float, length: int = 20) -> str:
+    """使用率に応じたプログレスバーを生成する"""
+    filled = int(length * percent / 100)
+    bar = "█" * filled + "░" * (length - filled)
+    return f"[{bar}] {percent:.1f}%"
+
+
+def print_header(title: str) -> None:
+    """セクションの見出しを表示する"""
+    print("=" * 40)
+    print(f"  {title}")
+    print("=" * 40)
+
+
+def get_storage_info(path: str, label: str) -> None:
     """指定パスのストレージ容量と使用量を表示する"""
     usage = shutil.disk_usage(path)
     percent = (usage.used / usage.total) * 100
 
-    print(f"=== ストレージ状態 ({path}) ===")
+    print_header(f"{label} ({path})")
+    print(f"使用率  : {create_progress_bar(percent)}")
     print(f"総容量  : {format_bytes(usage.total)}")
-    print(f"使用量  : {format_bytes(usage.used)} ({percent:.1f}%)")
+    print(f"使用量  : {format_bytes(usage.used)}")
     print(f"空き容量 : {format_bytes(usage.free)}")
 
 
 def get_physical_disk_health() -> None:
-    """Windows側のPowerShell経由で物理ディスクの温度・摩耗率・稼働時間を取得する"""
+    """PowerShell経由で物理ディスクの温度・摩耗率・健康状態を取得する"""
     ps_command = """
     Get-PhysicalDisk | ForEach-Object {
         $c = $_ | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
@@ -34,12 +51,11 @@ def get_physical_disk_health() -> None:
             Health = $_.HealthStatus
             Temp = if ($c) { $c.Temperature } else { $null }
             Wear = if ($c) { $c.Wear } else { $null }
-            Hours = if ($c) { $c.PowerOnHours } else { $null }
         }
     } | ConvertTo-Json -Compress
     """
 
-    print("=== 物理ストレージ詳細 (Windows経由) ===")
+    print_header("物理ストレージ詳細 (Windows経由)")
     try:
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command", ps_command],
@@ -59,24 +75,44 @@ def get_physical_disk_health() -> None:
         for disk in disks:
             temp = f"{disk['Temp']} ℃" if disk.get("Temp") is not None else "取得不可"
             wear = f"{disk['Wear']} %" if disk.get("Wear") is not None else "取得不可"
-            hours = f"{disk['Hours']} 時間" if disk.get("Hours") is not None else "取得不可"
 
             print(f"モデル名 : {disk.get('Name', '不明')} ({disk.get('MediaType', '不明')})")
             print(f"健康状態 : {disk.get('Health', '不明')}")
             print(f"温度   : {temp}")
             print(f"摩耗率  : {wear}")
-            print(f"稼働時間 : {hours}")
-            print("-" * 35)
+            print("-" * 40)
 
     except FileNotFoundError:
-        print("powershell.exe が見つかりません（WSL環境ではない可能性があります）。")
+        print("powershell.exe が見つかりません。")
     except Exception as e:
         print(f"取得中にエラーが発生しました: {e}")
 
 
+def is_wsl() -> bool:
+    """WSL環境かどうかを判定する"""
+    return "microsoft" in platform.release().lower()
+
+
+def main() -> None:
+    os_name = platform.system()
+
+    if os_name == "Windows":
+        if os.path.exists("C:\\"):
+            get_storage_info("C:\\", "Cドライブストレージ")
+            print()
+        get_physical_disk_health()
+
+    elif os_name == "Linux" and is_wsl():
+        if os.path.exists("/mnt/c"):
+            get_storage_info("/mnt/c", "Cドライブストレージ")
+            print()
+        get_storage_info("/", "Linux仮想ストレージ")
+        print()
+        get_physical_disk_health()
+
+    else:
+        get_storage_info("/", "システムストレージ")
+
+
 if __name__ == "__main__":
-    get_storage_info("/mnt/c")
-    print()
-    get_storage_info("/")
-    print()
-    get_physical_disk_health()
+    main()
