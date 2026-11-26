@@ -1,5 +1,5 @@
 # Storage Monitor
-![test]
+![test]![test](https://github.com/KoheiEbara0210/storage-monitor/actions/workflows/test.yml/badge.svg)
 
 自分のストレージの使用量を確認する
 
