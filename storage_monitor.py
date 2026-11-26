@@ -1,91 +1,11 @@
-import json
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Kohei Ebara s25c1013za@chibatech.ac.jp
+# SPDX-License-Identifier: BSD-3-Clause
+
 import os
 import platform
 import shutil
-import subprocess
-
-
-def format_bytes(size_bytes: float) -> str:
-    """バイト数を読みやすい単位（GB, TBなど）に変換する"""
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size_bytes < 1024:
-            return f"{size_bytes:.2f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.2f} PB"
-
-
-def create_progress_bar(percent: float, length: int = 20) -> str:
-    """使用率に応じたプログレスバーを生成する"""
-    filled = int(length * percent / 100)
-    bar = "█" * filled + "░" * (length - filled)
-    return f"[{bar}] {percent:.1f}%"
-
-
-def print_header(title: str) -> None:
-    """セクションの見出しを表示する"""
-    print("=" * 40)
-    print(f"  {title}")
-    print("=" * 40)
-
-
-def get_storage_info(path: str, label: str) -> None:
-    """指定パスのストレージ容量と使用量を表示する"""
-    usage = shutil.disk_usage(path)
-    percent = (usage.used / usage.total) * 100
-
-    print_header(f"{label} ({path})")
-    print(f"使用率  : {create_progress_bar(percent)}")
-    print(f"総容量  : {format_bytes(usage.total)}")
-    print(f"使用量  : {format_bytes(usage.used)}")
-    print(f"空き容量 : {format_bytes(usage.free)}")
-
-
-def get_physical_disk_health() -> None:
-    """PowerShell経由で物理ディスクの温度・摩耗率・健康状態を取得する"""
-    ps_command = """
-    Get-PhysicalDisk | ForEach-Object {
-        $c = $_ | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
-        [PSCustomObject]@{
-            Name = $_.FriendlyName
-            MediaType = $_.MediaType
-            Health = $_.HealthStatus
-            Temp = if ($c) { $c.Temperature } else { $null }
-            Wear = if ($c) { $c.Wear } else { $null }
-        }
-    } | ConvertTo-Json -Compress
-    """
-
-    print_header("物理ストレージ詳細 (Windows経由)")
-    try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", ps_command],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        output = result.stdout.strip()
-        if not output:
-            print("情報を取得できませんでした（管理者権限が必要な場合があります）。")
-            return
-
-        disks = json.loads(output)
-        if isinstance(disks, dict):
-            disks = [disks]
-
-        for disk in disks:
-            temp = f"{disk['Temp']} ℃" if disk.get("Temp") is not None else "取得不可"
-            wear = f"{disk['Wear']} %" if disk.get("Wear") is not None else "取得不可"
-
-            print(f"モデル名 : {disk.get('Name', '不明')} ({disk.get('MediaType', '不明')})")
-            print(f"健康状態 : {disk.get('Health', '不明')}")
-            print(f"温度   : {temp}")
-            print(f"摩耗率  : {wear}")
-            print("-" * 40)
-
-    except FileNotFoundError:
-        print("powershell.exe が見つかりません。")
-    except Exception as e:
-        print(f"取得中にエラーが発生しました: {e}")
+import sys
 
 
 def is_wsl() -> bool:
@@ -93,25 +13,69 @@ def is_wsl() -> bool:
     return "microsoft" in platform.release().lower()
 
 
+def select_drive() -> str:
+    """CドライブまたはDドライブを選択する"""
+    print("C : Cドライブ", file=sys.stderr)
+    print("D : Dドライブ", file=sys.stderr)
+    print("ドライブを選択してください: ", end="", file=sys.stderr)
+
+    try:
+        choice = input().strip().upper()
+
+    except (KeyboardInterrupt, EOFError):
+        print("\n入力が中断されました。", file=sys.stderr)
+        sys.exit(1)
+
+    if choice in ["C", "D"]:
+        return choice
+
+    print("入力が正しくありません。CまたはDを入力してください。", file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> None:
+    """メイン処理"""
     os_name = platform.system()
 
+    # OSに応じてドライブのパスを設定
     if os_name == "Windows":
-        if os.path.exists("C:\\"):
-            get_storage_info("C:\\", "Cドライブストレージ")
-            print()
-        get_physical_disk_health()
+        drive_paths = {
+            "C": "C:\\",
+            "D": "D:\\"
+        }
 
     elif os_name == "Linux" and is_wsl():
-        if os.path.exists("/mnt/c"):
-            get_storage_info("/mnt/c", "Cドライブストレージ")
-            print()
-        get_storage_info("/", "Linux仮想ストレージ")
-        print()
-        get_physical_disk_health()
+        drive_paths = {
+            "C": "/mnt/c",
+            "D": "/mnt/d"
+        }
 
     else:
-        get_storage_info("/", "システムストレージ")
+        print("対応していないOSです。", file=sys.stderr)
+        sys.exit(1)
+
+    # ドライブを選択
+    drive = select_drive()
+    path = drive_paths[drive]
+
+    # ドライブの存在確認
+    if not os.path.exists(path):
+        print("指定されたドライブが見つかりません。", file=sys.stderr)
+        sys.exit(1)
+
+    # 空き容量を取得
+    try:
+        usage = shutil.disk_usage(path)
+
+        # 空き容量のみを標準出力に出力
+        print(usage.free)
+
+    except OSError as e:
+        print(f"ストレージ情報の取得に失敗しました: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 正常終了
+    sys.exit(0)
 
 
 if __name__ == "__main__":
