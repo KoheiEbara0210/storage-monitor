@@ -1,9 +1,8 @@
+cat << 'EOF' > test.bash
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Kohei Ebara s25c1013za@chibatech.ac.jp
 # SPDX-License-Identifier: BSD-3-Clause
 
-cat << 'EOF' > test.bash
-#!/usr/bin/env bash
 set -euo pipefail
 
 PASS_COUNT=0
